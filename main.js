@@ -397,7 +397,8 @@ const Game = {
 		"flo_icons_ui": "https://raw.githubusercontent.com/FloTheWiz/miscc/refs/heads/main/fish_spritesheetx2.png", // soon to be phased out 64x
 		"flo_sky_bodies": "https://raw.githubusercontent.com/FloTheWiz/miscc/refs/heads/main/sunsx2.png",
 		"flo_clouds": "img/normalclouds.png",
-		"flo_seagull": "img/seagullx2.png"
+		"flo_seagull": "img/seagullx2.png",
+		"flo_bubbles":"img/bubbles.png"
 	},
 
 	imgs: {},
@@ -476,6 +477,7 @@ const Game = {
 		Game.setupParticlePool();
         Game.initialFish();
         Game.cloudManager.initialClouds();
+		Game.starManager.init();
 
 		Game.ensurePlayerId()
 
@@ -549,17 +551,21 @@ const Game = {
 		}
 		Game.ctx.clearRect(0, 0, Game.canvas.width, Game.canvas.height);
 		Game.drawBG();
+
+		Game.starManager.draw(Game.ctx);
 		Game.drawSkyBody();
 		Game.cloudManager.draw(Game.ctx);
 		Game.seagullManager.draw(Game.ctx);
 		Game.drawWater(dt, 3.0, 0.1,false);
-		
+
 		Game.drawBoat(dt); // Draw boat behind both waves
+
 
 		
 
 		Game.drawParticles();
 		Game.drawWater(dt, 2.0, 0.3,false);
+		Game.bubbleManager.draw();
 		Game.drawWaterVignette();
 		Game.drawFish();
 		Game.drawWater(dt, 1.0, 0.5,false);
@@ -586,7 +592,7 @@ const Game = {
 		this.cloudManager.update(dt);
 		this.seagullManager.update(dt);
 		this.rainManager.update(dt); 
-
+		this.bubbleManager.update(dt);
 		if (Game.autoClicker.enabled && Game.autoClicker.held) {
 			Game.autoClicker.timer += dt;
 			while (Game.autoClicker.timer >= Game.autoClicker.interval) {
@@ -606,8 +612,10 @@ const Game = {
 		Game.checkOceanEvent();
 		Game.specialWeatherChanceRoll();
 		Game.seagullManager.trySpawn();
+		//Game.bubbleManager.tick();
 		Game.updateDocumentTitle();
 		Game.checkAchievements();
+		Game.refreshPanel('stats')
 	},
     updateDocumentTitle: function() {
         const fishCount = Game.currentFish;
@@ -1145,7 +1153,47 @@ const Game = {
         dark:"#212123",
         light:"#eeeeee"
     },
-	getEnvColors: function() {
+	// Extrapolating some of this for other things
+	getArcProgress: function(){ // --> bool
+		return Game.dayNight.isDay ?
+			Game.dayNight.progress / 0.5 :
+			(Game.dayNight.progress - 0.5) / 0.5;
+	},
+	getNightDarkness: function(){ // --> float
+		return !Game.dayNight.isDay ?
+			Math.sin(Game.getArcProgress() * Math.PI) :
+			0;
+	},
+	getSunriseSunset: function(){ // --> [float, float]
+		let sunsetStrength = 0;
+		let sunriseStrength = 0;
+		const arcProgress = Game.getArcProgress()
+
+		if (Game.dayNight.isDay) {
+			// Day: sunrise near 0, sunset near 1
+			sunriseStrength = Math.max(0, Math.min(1, (0.15 - arcProgress) / 0.15));
+			sunsetStrength = Math.max(0, Math.min(1, (arcProgress - 0.85) / 0.15));
+		} else {
+			// Night: sunset near 0, sunrise near 1
+			sunsetStrength = Math.max(0, Math.min(1, (0.15 - arcProgress) / 0.13));
+			sunriseStrength = Math.max(0, Math.min(1, (arcProgress - 0.85) / 0.13));
+		}
+		return [sunsetStrength, sunriseStrength]
+	},
+	getSkyClarity: function(){
+			// According to the weather, What's the '
+	},
+	getStarVisibility: function() {
+		const clarity = 0.9;
+		const nightDarkness = Game.getNightDarkness();
+		const [sunsetStrength, sunriseStrength] = Game.getSunriseSunset();
+		const edgeFade = 1 - Math.max(sunsetStrength, sunriseStrength); // dim near twilight
+		const eclipseBoost = Game.specialWeather.active === "solarEclipse" ? Game.specialWeather.blend : 0;
+		const vis =  Math.max(nightDarkness, eclipseBoost) * clarity * edgeFade;
+		//console.log(vis)
+		return vis;
+	},
+	getEnvColors: function() { // --> 4 colors: skyTop, skyBottom, waterShallow, waterDeep
 		// this is visually the most important thing in the whole game
 		const w = Game.weather;
 		const from = Game.allWeathers[w.current].colors;
@@ -1165,28 +1213,13 @@ const Game = {
 		}
 
 		// --- arcProgress (0→1 during day, 0→1 during night) ---
-		const arcProgress = Game.dayNight.isDay ?
-			Game.dayNight.progress / 0.5 :
-			(Game.dayNight.progress - 0.5) / 0.5;
+		const arcProgress = Game.getArcProgress();
 
 		// Night darkness: 0 at both twilight boundaries, 1 at midnight
-		const nightDarkness = !Game.dayNight.isDay ?
-			Math.sin(arcProgress * Math.PI) :
-			0;
+		const nightDarkness = Game.getNightDarkness();
 
 		// --- Twilight strengths (only near the horizon) ---
-		let sunsetStrength = 0;
-		let sunriseStrength = 0;
-
-		if (Game.dayNight.isDay) {
-			// Day: sunrise near 0, sunset near 1
-			sunriseStrength = Math.max(0, Math.min(1, (0.15 - arcProgress) / 0.15));
-			sunsetStrength = Math.max(0, Math.min(1, (arcProgress - 0.85) / 0.15));
-		} else {
-			// Night: sunset near 0, sunrise near 1
-			sunsetStrength = Math.max(0, Math.min(1, (0.15 - arcProgress) / 0.15));
-			sunriseStrength = Math.max(0, Math.min(1, (arcProgress - 0.85) / 0.15));
-		}
+		const [sunsetStrength, sunriseStrength] = Game.getSunriseSunset();
 
 		const orange = "#fc8803";
 		const nightTop = "#08010d";
@@ -1291,14 +1324,14 @@ const Game = {
 		const x = arcProgress * (Game.canvas.width + 128) - 64;
 		const y = Game.waterLine - Math.sin(arcProgress * Math.PI) * (Game.waterLine * 0.65);
 		const size = Game.skyBodyTileSize;
-		Game.ctx.save()
+		Game.ctx.save();
 		Game.ctx.shadowBlur = Game.dayNight.isDay ?
 			"10px" :
 			"1px";
 		Game.ctx.shadowColor = Game.dayNight.isDay ?
 			'#ffaaaa' :
 			'#aaaaaa';
-		drawFromSheet(Game.ctx, sheet, frame.col, frame.row, size, x - size / 2, y - size / 2,1);
+		drawFromSheet(Game.ctx, sheet, frame.col, frame.row, size, x - size / 2, y - size / 2);
 		Game.ctx.restore()
 	},
 	dayNight: {
@@ -1387,6 +1420,187 @@ const Game = {
 			ctx.restore();
 		}
 	},
+	starManager: {
+		x: null,
+		y: null,
+		radius: null,
+		baseRadius: null,
+		twinklePhase: null,
+		twinkleSpeed: null,
+		color: null,
+		bright: null,
+		flickering: null,
+
+		starsAmount: 1200,
+
+		colors: [
+			0xCCDDFF55,
+			0xFFFFFF66,
+			0xFFEEDD44,
+			0xAABBFF44,
+			0xDDEEFF66,
+			0xFFDDAA44
+		],
+
+		init: function() {
+			let s = Game.ensurePlayerId();
+
+			const rand = () => {
+				s = (s * 1103515245 + 12345) & 0x7fffffff;
+				return s / 0x7fffffff;
+			};
+
+			const n = this.starsAmount;
+
+			this.x = new Float32Array(n);
+			this.y = new Float32Array(n);
+			this.radius = new Float32Array(n);
+			this.baseRadius = new Float32Array(n);
+			this.twinklePhase = new Float32Array(n);
+			this.twinkleSpeed = new Float32Array(n);
+			this.color = new Uint32Array(n);
+			this.bright = new Uint8Array(n);
+			this.flickering = new Uint8Array(n);
+
+			for (let i = 0; i < n; i++) {
+				const radius = 0.2 + rand() * 1.9;
+
+				this.x[i] = rand();
+				this.y[i] = rand() * 0.9;
+
+				this.baseRadius[i] = radius;
+				this.radius[i] = radius;
+
+				this.twinklePhase[i] = rand() * Math.PI * 2;
+				this.twinkleSpeed[i] = 0.01 + rand() * 1.1;
+
+				this.color[i] =
+					this.colors[Math.floor(rand() * this.colors.length)];
+
+				this.bright[i] = rand() > 0.92 ? 1 : 0;
+				this.flickering[i] = 0;
+			}
+		},
+
+		draw: function(ctx) {
+			const driftSpeed = 0.03;
+			const offset = (Game.dayNight.progress * driftSpeed) % 1;
+			const visibility = Game.getStarVisibility();
+
+			if (visibility <= 0) return;
+
+			const width = Game.canvas.width;
+			const waterLine = Game.waterLine;
+			const time = Game.time;
+
+			// Group stars by colour so we don't change fillStyle for every star.
+			const batches = new Map();
+
+			for (let i = 0; i < this.starsAmount; i++) {
+				const x = (((this.x[i] + offset) % 1) * width * 2) - width;
+
+				if (x < -20 || x > width + 20) continue;
+
+				const colour = this.color[i];
+
+				let batch = batches.get(colour);
+				if (!batch) {
+					batch = [];
+					batches.set(colour, batch);
+				}
+
+				batch.push(i);
+			}
+
+			for (const [colour, indices] of batches) {
+				ctx.fillStyle = this.cssColor(colour);
+				ctx.beginPath();
+
+				for (const i of indices) {
+					const x = (((this.x[i] + offset) % 1) * width * 2) - width;
+					const y = this.y[i] * waterLine;
+
+					const twinkle =
+						0.6 +
+						0.4 *
+						Math.sin(
+							time * this.twinkleSpeed[i] +
+							this.twinklePhase[i]
+						);
+
+					const radius =
+						this.baseRadius[i] *
+						(this.bright[i] ? 1 : 0.7);
+
+					ctx.moveTo(x + radius, y);
+					ctx.arc(x, y, radius * twinkle, 0, Math.PI * 2);
+				}
+
+				ctx.globalAlpha = visibility;
+				ctx.fill();
+			}
+
+			// Only the rare bright stars get an additional glow.
+			for (let i = 0; i < this.starsAmount; i++) {
+				if (!this.bright[i]) continue;
+
+				const x = (((this.x[i] + offset) % 1) * width * 2) - width;
+
+				if (x < -20 || x > width + 20) continue;
+
+				const y = this.y[i] * waterLine;
+
+				const twinkle =
+					0.6 +
+					0.4 *
+					Math.sin(
+						time * this.twinkleSpeed[i] +
+						this.twinklePhase[i]
+					);
+
+				const r = this.baseRadius[i] * twinkle;
+
+				if (r < 0.5) continue;
+
+				const glow = ctx.createRadialGradient(
+					x, y, 0,
+					x, y, r * 4
+				);
+
+				glow.addColorStop(0, "rgba(200,230,255,0.35)");
+				glow.addColorStop(1, "rgba(0,0,0,0)");
+
+				ctx.globalAlpha = visibility;
+				ctx.fillStyle = glow;
+				ctx.beginPath();
+				ctx.arc(x, y, r * 4, 0, Math.PI * 2);
+				ctx.fill();
+			}
+
+			ctx.globalAlpha = 1;
+		},
+
+		cssColor: function(packed) {
+			if (!this.colorCache) {
+				this.colorCache = new Map();
+			}
+
+			if (this.colorCache.has(packed)) {
+				return this.colorCache.get(packed);
+			}
+
+			const r = (packed >>> 24) & 0xFF;
+			const g = (packed >>> 16) & 0xFF;
+			const b = (packed >>> 8) & 0xFF;
+			const a = (packed & 0xFF) / 255;
+
+			const color = `rgba(${r},${g},${b},${a.toFixed(2)})`;
+
+			this.colorCache.set(packed, color);
+
+			return color;
+		}
+	},
 	cloudManager: {
 		clouds: [],
 		maxClouds: 70,
@@ -1440,7 +1654,7 @@ const Game = {
 			const scale = 0.5 + depth * 1.1; 
 			var cloud = {
 				x: direction === 1 ? -this.tileWidth * scale : Game.canvas.width + this.tileWidth * scale,
-				y: 20 + Math.random() * (Game.waterLine * 0.5),
+				y: Math.random() * (Game.waterLine * 0.5) -20,
 				speed: (6 + depth * 14), // ez parallax 
 				direction,
 				frame: choose(this.frames),
@@ -1480,6 +1694,67 @@ const Game = {
 				ctx.globalAlpha = c.alpha;
 				drawFromSheetRect(ctx, sheet, c.frame.col, c.frame.row, this.tileWidth, this.tileHeight, c.x, c.y, c.scale, c.direction > 0);
 				ctx.restore();
+			}
+		}
+	},
+	bubbleManager: {
+		active: [],
+		maxActive: 40,
+		tileSize: 8,
+		loopFrames: 4,
+		popFrames: 3,
+		frameTime: 0.14,
+		chance: 0.005,
+		y_top: 6,
+		spawnCluster: function(x, count = 3) {
+			for (let i = 0; i < count; i++) {
+				this.active.push({
+					x: x + (Math.random() * 20 - 10),
+					y: Game.canvas.height + 20 + Math.random() * 30,
+					variant: Math.floor(Math.random() * 2), // row
+					frame: 0,
+					frameTimer: Math.random() * 0.2, // desyncs
+					speed: 40 + Math.random() * 30,
+					wobbleFreq: 1 + Math.random(),
+					wobblePhase: Math.random() * Math.PI * 2,
+					scale: 0.6 + Math.random() * 0.6,
+					state: "rising" // rising -> popping
+				});
+			}
+		},
+		update: function(dt) {
+			if (Math.random() < this.chance) {
+				this.spawnCluster(Math.random() * Game.canvas.width,count=3+Math.floor(Math.random() * 2));
+			}
+			for (let i = this.active.length - 1; i >= 0; i--) {
+				const b = this.active[i];
+				if (b.state === "rising") {
+					b.y -= b.speed * dt
+				}
+				b.x += Math.sin(Game.time * b.wobbleFreq + b.wobblePhase) * 8 * dt;
+
+				b.frameTimer += dt;
+				if (b.frameTimer >= this.frameTime) {
+					b.frameTimer = 0;
+					b.frame++;
+					if (b.state === "rising" && b.frame >= this.loopFrames) b.frame = 0; // loop the swim anim
+				}
+				if (b.state === "rising" && b.y <= Game.waterLine + this.y_top) {
+					b.state = "popping";
+					b.frame = this.loopFrames; // jump into pop frames
+				}
+				if (b.state === "popping" && b.frame >= this.loopFrames + this.popFrames) {
+					this.active.splice(i, 1);
+				}
+			}
+		},
+
+		draw: function() {
+			const sheet = Game.imgs["flo_bubbles"];
+			const ctx = Game.ctx;
+			if (!sheet || !sheet.complete) return;
+			for (const b of this.active) {
+				drawFromSheet(ctx, sheet, b.frame, b.variant, this.tileSize, b.x, b.y, b.scale);
 			}
 		}
 	},
@@ -1806,10 +2081,10 @@ const Game = {
 		const playerRod = Game.imgs["flo_rod"];
 		if (playerRod){
 			if (Game.clickSide) {
-				drawFromSheet(Game.ctx, playerRod, 0, 0, 96, -108, -100, 1, !Game.clickSide);
+				drawFromSheet(Game.ctx, playerRod, 0, 0, 96, -108, -102, 1, !Game.clickSide);
 			}
 			else {
-				drawFromSheet(Game.ctx, playerRod, 0, 0, 96, -84, -100, 1, !Game.clickSide);
+				drawFromSheet(Game.ctx, playerRod, 0, 0, 96, -84, -102, 1, !Game.clickSide);
 			}
 			//Game.ctx.drawImage(playerRod,-80,-80,);
 		}
@@ -2085,7 +2360,7 @@ const Game = {
 		maxActive: 3,
 		tileSize: 64,
 		flapFrameTime: 0.25,
-		spawnChancePerTick: 0.1,
+		spawnChancePerTick: 0.02,
 
 		trySpawn: function() {
 			if (!this.unlocked) return;
@@ -2207,6 +2482,7 @@ const Game = {
 	uiSheets: {
 
 	},
+	/// NPC
 	renderIcon: function(sheetKey, col, row, tileSize = 64) {
 		const el = document.createElement("div");
 		el.className = "spriteIcon";
