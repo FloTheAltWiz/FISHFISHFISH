@@ -8,12 +8,13 @@ Many thanks to Orteil for the inspiration, check it out at: https://orteil.dashn
 */
 
 
-/* This file is laid out with the important bits at the top and the definitions at the bottom.
-Things like Boot, Update, Draw, Tick can be found around the top;
+/* This file is laid out with the "important" bits at the top* and the definitions at the bottom.
+ * Things like Boot, Update, Draw, Tick can be found around the top;
 
-comments n credits <-- You are here. 
+ ### LAYOUT
+comments n credits <-- You are here.
 
-HELPER FUNCTIONS 
+HELPER FUNCTIONS
 
 Sound System
 Language (soon)
@@ -34,7 +35,7 @@ Language (soon)
 	(this whole section is basically just drawing the world)
 	Weather System (env)
 	Special Weathers
-	Sky 
+	Sky
 	Colors (Does ALL the colour lifting)
 	Cloud System
 	Rain System
@@ -42,10 +43,10 @@ Language (soon)
 	Particle System (Not very good)
 	Character System
 
-	Drawing --> 
+	Drawing -->
 	- Boat (w/ Player / Guests)
 	- Water (+BG)
-	
+
 	Fish System
 	Seagull System
 
@@ -55,7 +56,7 @@ Language (soon)
 	Upgrades
 	Fish and Tiered Fish Upgrades
 	Tooltips (could be improved)
-	Buildings 
+	Buildings
 	Showing Buffs and Displaying Fish
 	Tooltips
 
@@ -65,11 +66,11 @@ Language (soon)
 
 	(DEFINITIONS BEGIN)
 	fish swimming + definitions
-	achievements 
-	buildings 
-	upgrades 
-	characters 
-	special ocean events 
+	achievements
+	buildings
+	upgrades
+	characters
+	special ocean events
 	special weather (soon probably)
 
 	call Game.Boot(), basically
@@ -83,6 +84,16 @@ function getEle(what) {
 function choose(arr) {
 	return arr[Math.floor(Math.random() * arr.length)];
 }
+// small deterministic string hash, 32-bit unsigned output
+function hashStringToInt(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
+    }
+    return hash >>> 0;
+}
+
+
 const rgbToRgba = function(rgb, alpha){return `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`}
 function hexToRgb(hex) {
 	const n = parseInt(hex.slice(1), 16);
@@ -112,11 +123,11 @@ function colorToRgb(color) {
 			g: Number(match[2]),
 			b: Number(match[3])
 		};
-
+	} else {
 	throw new Error(`Invalid color: ${color}`);
     }
 }
-
+//// It would be a lot faster for this to just output RGB each time.
 function lerpColor(colorA, colorB, t) {
 	t = Math.max(0, Math.min(1, t));
 
@@ -165,9 +176,9 @@ function drawFromSheet(ctx, sheet, col, row, tileSize, dx, dy, scale = 1, flipX 
 	const dw = tileSize * scale;
 	const dh = tileSize * scale;
 
-	ctx.save();
-
 	if (flipX) {
+
+		ctx.save();
 		ctx.translate(dx + dw / 2, dy + dh / 2);
 		ctx.scale(-1, 1);
 
@@ -178,7 +189,9 @@ function drawFromSheet(ctx, sheet, col, row, tileSize, dx, dy, scale = 1, flipX 
 			-dw / 2, -dh / 2,
 			dw, dh
 		);
+		ctx.restore();
 	} else {
+
 		ctx.drawImage(
 			sheet,
 			sx, sy,
@@ -188,9 +201,13 @@ function drawFromSheet(ctx, sheet, col, row, tileSize, dx, dy, scale = 1, flipX 
 		);
 	}
 
-	ctx.restore();
 }
-//// SOUNDS 
+
+function numberWithCommas(x) {
+    return x.toLocaleString('en-US');
+}
+
+//// SOUNDS
 /*
 SOUND.JS
 
@@ -222,7 +239,7 @@ const Sound = {
 	masterVolume: 0.8,
 	muted: false,
 
-	
+
 	// BOOT / LOADING
 	init: function() {
 		if (this.ctx) return;
@@ -356,6 +373,7 @@ const Game = {
 	buildings: [],
 	currentFish: 0,
 	fishAllTime: 0,
+	fishThisRun: 0,
 	fishPerClick: 1, // fallback default; real value is computed by recalcStats() once things boot
 
 	// STATS / MODIFIERS
@@ -386,8 +404,8 @@ const Game = {
 	// Sound
 	// SPRITE LOADING
 	spritesOnBoot: { // named to avoid namespace collision, feel free to mod some in
-		"flo_fish": "img/iconsx64.png", // 32x, smaller.. ironic named i think
-		"flo_icons": "img/icons.png", // 64x, bigger, for UI 
+		"flo_fish": "img/iconsx64.png",
+		"flo_icons": "img/iconsx64.png", // 64x, bigger, for UI
 		"flo_boatfront": "img/boatfrontx2.png", // 2x size
 		"flo_boatback": "img/boatbackx2.png",
 		"flo_rod":"img/basicrodx2.png", // just the 1 rod rn
@@ -507,41 +525,62 @@ const Game = {
 		Game.setPaused(!Game.paused);
 	},
 
-	// MAIN LOOP
+	/// MAIN LOOP
 	lastTime: null,
 	time: 0,
+
+	// Performance
+	fps: 0,
+	frameTime: 0,
+	fpsFrames: 0,
+	fpsTimer: 0,
+
 	loop: function(timestamp) {
 
 		if (Game.paused) {
-			Game.lastTime = null; // keep this null the whole time we're paused so resume never spikes dt
+			Game.lastTime = null;
 			requestAnimationFrame(Game.loop);
 			return;
 		}
 
 		if (!Game.lastTime) {
 			Game.lastTime = timestamp;
-			requestAnimationFrame(Game.loop); // try again
+			requestAnimationFrame(Game.loop);
 			return;
 		}
 
-		var dt = (timestamp - Game.lastTime) / 1000;
-		dt = Math.min(dt, 1 / 15);
+		var rawDt = (timestamp - Game.lastTime) / 1000;
 		Game.lastTime = timestamp;
+
+		if (DEV) {
+			Game.frameTime = rawDt * 1000;
+
+			Game.fpsTimer += rawDt;
+			Game.fpsFrames++;
+
+			if (Game.fpsTimer >= 0.5) {
+				Game.fps = Game.fpsFrames / Game.fpsTimer;
+				Game.fpsFrames = 0;
+				Game.fpsTimer = 0;
+			}
+		}
+
+		var dt = Math.min(rawDt, 1 / 15);
+
+		//console.log(dt);
 
 		Game.update(dt);
 		Game.draw(dt);
-		// Gains
-
+		if (DEV) Game.updateDev();
 		if (Game.fishDirty) Game.recalcGains();
 		Game.doPassive(dt);
 
 		requestAnimationFrame(Game.loop);
-
 	},
 
 	// DRAWING
 	draw: function(dt) {
-		// the most particular order ever. Should maybe just be an ordered list. 
+		// the most particular order ever. Should maybe just be an ordered list.
 		if (Game.ascension.state !== "idle") {
 			Game.ascension.draw(dt);
 		}
@@ -556,42 +595,51 @@ const Game = {
 		Game.drawSkyBody();
 		Game.cloudManager.draw(Game.ctx);
 		Game.seagullManager.draw(Game.ctx);
-		Game.drawWater(dt, 3.0, 0.1,false);
+		Game.drawWater(dt, 3.2, 0.05,false);
 
 		Game.drawBoat(dt); // Draw boat behind both waves
 
 
-		
+
 
 		Game.drawParticles();
-		Game.drawWater(dt, 2.0, 0.3,false);
+		Game.drawWater(dt, 2.0, 0.1,false);
 		Game.bubbleManager.draw();
 		Game.drawWaterVignette();
 		Game.drawFish();
 		Game.drawWater(dt, 1.0, 0.5,false);
+
 		Game.rainManager.draw(Game.ctx);
 		return;
 	},
 	update: function(dt) {
 		// this feels like a criminal amount of per-frame updates
 		Game.time += dt;
+
+		// should happen regardless of ascension
 		this.updateParticles(dt);
 		this.updateFish(dt);
-		
+
+		this.updateSkyBody();
+		this.updateEnvColors();
+
+
 		if (Game.fishDirty) Game.recalcGains();
 		if (Game.ascension.state !== "idle") {
 		Game.ascension.update(dt);
 		return;
 		}
 
+		// stop when ascending
 		this.updateBoat(dt);
 		this.updateWeatherBlend(dt);
 		this.updateDayNight(dt);
 		this.updateSpecialWeather(dt);
-		this.updateSkyBody();
+
+		this.starManager.update(dt);
 		this.cloudManager.update(dt);
 		this.seagullManager.update(dt);
-		this.rainManager.update(dt); 
+		this.rainManager.update(dt);
 		this.bubbleManager.update(dt);
 		if (Game.autoClicker.enabled && Game.autoClicker.held) {
 			Game.autoClicker.timer += dt;
@@ -615,7 +663,7 @@ const Game = {
 		//Game.bubbleManager.tick();
 		Game.updateDocumentTitle();
 		Game.checkAchievements();
-		Game.refreshPanel('stats')
+		Game.markPanelDirty("stats");
 	},
     updateDocumentTitle: function() {
         const fishCount = Game.currentFish;
@@ -633,7 +681,9 @@ const Game = {
 	gainFish: function(amount) {
 		Game.currentFish += amount;
 		Game.fishAllTime += amount;
-		Game.updateFishDisplay()
+		Game.fishThisRun += amount;
+		Game.updateFishDisplay();
+
 	},
     Has: function(upgradeId){
         return Game.upgradesById[upgradeId]?.purchased;
@@ -647,7 +697,7 @@ const Game = {
 			}
 		}
 	},
-	spawnAFunnyFish: function(xCoord, yCoord) {
+	spawnAFunnyFish: function(xCoord, yCoord) { // -> fish or null
 		const poolFish = Game.allFish.filter(fish => fish.unlocked);
 		if (poolFish.length > 0) {
 			const caught = choose(poolFish);
@@ -664,7 +714,9 @@ const Game = {
 				caught.column,
 				caught.row
 			);
+			return caught;
 		}
+		return null;
 	},
 
 	// CLICK EVENTS
@@ -690,14 +742,14 @@ const Game = {
 	},
 	handleHover: function(e) {
 		const rect = Game.canvas.getBoundingClientRect();
-		
+
 		const x = e.clientX - rect.left;
 		const y = e.clientY - rect.top;
 
 		Game.boat.isHovered = Game.isPointInBoat(x, y);
 		if (Game.boat.isHovered) document.body.style.cursor = 'pointer';
 		else document.body.style.cursor = 'default';
-		
+
 		Game.boat.scale = Game.boat.isHovered ?
 			1.03 :
 			1;
@@ -724,7 +776,7 @@ const Game = {
 		}
 
 		if (!Game.boat.isHovered) return;
-		
+
 		Game.catchFish(e);
 		Game.updateShopAffordability();
 
@@ -732,20 +784,33 @@ const Game = {
 
 	// Catching
 	catchFish: function(e) {
+		if (Game.paused) return;
 		Game.boat.scale = 0.88;
-		Sound.play('clickfish',{pitchVariance:0.35,volumeVariance:0.1})
+		Sound.play('clickfish',{pitchVariance:0.35,volumeVariance:0.1});
+		Game.clicksAllTime = (Game.clicksAllTime || 0) + 1;
 		Game.gainFish(Game.fishPerClick);
 
-		// 1. Spawn +1 Text
+		const boatSpawnX = this.centerX + (Math.random() * 60 - 30);
+		const caught = Game.spawnAFunnyFish(boatSpawnX);
 		const textOffset = [(Math.random() * 10) - 10, Math.random() * 10 - 10];
 		this.spawnParticle(
 			this.centerX + textOffset[0],
 			this.waterLine - 30 + textOffset[1],
-			`+${this.fishPerClick}`,
-            col="#"
+			`+${this.fishPerClick} ${caught?.name ?? "Fish"}`,
 		);
-		const boatSpawnX = this.centerX + (Math.random() * 60 - 30);
-		Game.spawnAFunnyFish(boatSpawnX);
+
+
+
+	},
+	devOverlay: null,
+	updateDev: function(){
+		Game.ctx.fillStyle = "white";
+		Game.ctx.font = "12px monospace";
+		Game.ctx.fillText(
+			`FPS: ${Game.fps.toFixed(1)} | ${Game.frameTime.toFixed(2)}ms`,
+			100,
+			20
+		);
 	},
 
 	// ASCENSION
@@ -802,7 +867,7 @@ const Game = {
 			// Stuff that needs to happen BEFORE ascending
 			Game.hideAscendUI(); // now correctly removes 'visible';
 			this.doPopup();
-			
+
 			Game.resetGame(false);
 		},
 
@@ -849,7 +914,7 @@ const Game = {
 			//ctx.rect(0, h - revealHeight, w, revealHeight);
 			//ctx.clip();
 
-			const colors = Game.getEnvColors(); // reuse so the water color matches seamlessly
+			const colors = Game.envColors;
 			const grad = ctx.createLinearGradient(0, 0, 0, h*t);
 			//const top = rgbToObj(colors.waterShallow);
 			const col = rgbToObj(lerpColor(colors.waterDeep,"#0c0714", t));
@@ -922,7 +987,7 @@ const Game = {
 		var cultToggle = getEle('cultistToggle');
 		cultToggle.style.display = 'none';
 	},
-	
+
 
 	// WEATHER
 	// Weather types
@@ -1180,18 +1245,37 @@ const Game = {
 		}
 		return [sunsetStrength, sunriseStrength]
 	},
-	getSkyClarity: function(){
-			// According to the weather, What's the '
+	skyClarityByWeather: { clear: 1, cloudy: 0.4, rainy: 0.15, stormy: 0.05 },
+	getSkyClarity: function() {
+		const w = Game.weather;
+		const from = this.skyClarityByWeather[w.current] ?? 1;
+		const to = w.target ? (this.skyClarityByWeather[w.target] ?? 1) : from;
+		const t = w.target ? w.blend : 0;
+		return from + (to - from) * t;
 	},
 	getStarVisibility: function() {
-		const clarity = 0.9;
+		const clarity = Game.getSkyClarity();
 		const nightDarkness = Game.getNightDarkness();
 		const [sunsetStrength, sunriseStrength] = Game.getSunriseSunset();
 		const edgeFade = 1 - Math.max(sunsetStrength, sunriseStrength); // dim near twilight
 		const eclipseBoost = Game.specialWeather.active === "solarEclipse" ? Game.specialWeather.blend : 0;
-		const vis =  Math.max(nightDarkness, eclipseBoost) * clarity * edgeFade;
+		const vis =  Math.max(nightDarkness, eclipseBoost) * clarity * (edgeFade ** 0.5);
 		//console.log(vis)
 		return vis;
+	},
+	envColors: {
+		skyTop: null,
+		skyBottom: null,
+		waterShallow: null,
+		waterDeep: null
+	},
+	// this whole thing could do with being boiled into a hooked pipeline.
+	updateEnvColors: function() {
+		const colors = Game.getEnvColors();
+		this.envColors.skyTop = colors.skyTop;
+		this.envColors.skyBottom = colors.skyBottom;
+		this.envColors.waterShallow = colors.waterShallow;
+		this.envColors.waterDeep = colors.waterDeep;
 	},
 	getEnvColors: function() { // --> 4 colors: skyTop, skyBottom, waterShallow, waterDeep
 		// this is visually the most important thing in the whole game
@@ -1332,7 +1416,7 @@ const Game = {
 			'#ffaaaa' :
 			'#aaaaaa';
 		drawFromSheet(Game.ctx, sheet, frame.col, frame.row, size, x - size / 2, y - size / 2);
-		Game.ctx.restore()
+		Game.ctx.restore();
 	},
 	dayNight: {
 		progress: 0,
@@ -1368,7 +1452,7 @@ const Game = {
 	rainManager: {
 		drops: [],
 		maxDrops: 220,
-		windAngle: 0.25, 
+		windAngle: 0.25,
 
 		makeDrop: function() {
 			return {
@@ -1386,11 +1470,11 @@ const Game = {
 
 			while (this.drops.length < targetCount) {
 				const d = this.makeDrop();
-				d.y = Math.random() * Game.canvas.height; 
+				d.y = Math.random() * Game.canvas.height;
 				this.drops.push(d);
 			}
 			if (this.drops.length > targetCount) {
-				this.drops.length = targetCount; 
+				this.drops.length = targetCount;
 			}
 
 			for (const drop of this.drops) {
@@ -1421,184 +1505,143 @@ const Game = {
 		}
 	},
 	starManager: {
-		x: null,
-		y: null,
-		radius: null,
-		baseRadius: null,
-		twinklePhase: null,
-		twinkleSpeed: null,
-		color: null,
-		bright: null,
-		flickering: null,
+		starsAmount: 400,
+		colors: [0xCCDDFF55, 0xFFFFFF66, 0xFFEEDD44, 0xAABBFF44, 0xDDEEFF66, 0xFFDDAA44],
 
-		starsAmount: 1200,
+		redrawInterval: 1/10, // how often the expensive per-star pass re-renders to the offscreen canvas
+		accumulator: 0,
 
-		colors: [
-			0xCCDDFF55,
-			0xFFFFFF66,
-			0xFFEEDD44,
-			0xAABBFF44,
-			0xDDEEFF66,
-			0xFFDDAA44
-		],
+		canvas: null,
+		ctx: null,
+		stripWidth: 0,
+		canvasHeight: 0,
 
 		init: function() {
-			let s = Game.ensurePlayerId();
-
-			const rand = () => {
-				s = (s * 1103515245 + 12345) & 0x7fffffff;
-				return s / 0x7fffffff;
-			};
+			this.seed = hashStringToInt(Game.ensurePlayerId());
+			let s = this.seed;
+			const rand = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
 
 			const n = this.starsAmount;
-
 			this.x = new Float32Array(n);
 			this.y = new Float32Array(n);
-			this.radius = new Float32Array(n);
 			this.baseRadius = new Float32Array(n);
 			this.twinklePhase = new Float32Array(n);
 			this.twinkleSpeed = new Float32Array(n);
-			this.color = new Uint32Array(n);
+			this.colorIdx = new Uint8Array(n);
 			this.bright = new Uint8Array(n);
-			this.flickering = new Uint8Array(n);
 
 			for (let i = 0; i < n; i++) {
-				const radius = 0.2 + rand() * 1.9;
-
 				this.x[i] = rand();
 				this.y[i] = rand() * 0.9;
-
-				this.baseRadius[i] = radius;
-				this.radius[i] = radius;
-
+				this.baseRadius[i] = 0.2 + rand() * 1.9;
 				this.twinklePhase[i] = rand() * Math.PI * 2;
 				this.twinkleSpeed[i] = 0.01 + rand() * 1.1;
-
-				this.color[i] =
-					this.colors[Math.floor(rand() * this.colors.length)];
-
+				this.colorIdx[i] = Math.floor(rand() * this.colors.length);
 				this.bright[i] = rand() > 0.92 ? 1 : 0;
-				this.flickering[i] = 0;
+			}
+
+			// Static groupings, computed once. Colour and brightness never change after generation,
+			// so there's no reason to rebuild these on every redraw like the old version did.
+			this.batchesByColor = new Map();
+			this.brightIndices = [];
+			for (let i = 0; i < n; i++) {
+				const css = this.cssColor(this.colors[this.colorIdx[i]]);
+				if (!this.batchesByColor.has(css)) this.batchesByColor.set(css, []);
+				this.batchesByColor.get(css).push(i);
+				if (this.bright[i]) this.brightIndices.push(i);
 			}
 		},
 
-		draw: function(ctx) {
-			const driftSpeed = 0.03;
-			const offset = (Game.dayNight.progress * driftSpeed) % 1;
-			const visibility = Game.getStarVisibility();
+		cssColor: function(packed) {
+			this.colorCache = this.colorCache || new Map();
+			if (this.colorCache.has(packed)) return this.colorCache.get(packed);
+			const r = (packed >>> 24) & 0xFF, g = (packed >>> 16) & 0xFF, b = (packed >>> 8) & 0xFF;
+			const css = `rgba(${r},${g},${b},${((packed & 0xFF) / 255).toFixed(2)})`;
+			this.colorCache.set(packed, css);
+			return css;
+		},
 
-			if (visibility <= 0) return;
-
+		ensureOffscreen: function() {
 			const width = Game.canvas.width;
-			const waterLine = Game.waterLine;
-			const time = Game.time;
+			const height = Game.waterLine;
+			const stripWidth = width * 2;
+			if (this.canvas && this.stripWidth === stripWidth && this.canvasHeight === height) return;
 
-			// Group stars by colour so we don't change fillStyle for every star.
-			const batches = new Map();
+			this.canvas = document.createElement("canvas");
+			this.canvas.width = stripWidth;
+			this.canvas.height = height;
+			this.ctx = this.canvas.getContext("2d");
+			this.stripWidth = stripWidth;
+			this.canvasHeight = height;
+			this.renderOffscreen(); // one-time cost on boot/resize so we're never blitting a blank canvas
+		},
 
-			for (let i = 0; i < this.starsAmount; i++) {
-				const x = (((this.x[i] + offset) % 1) * width * 2) - width;
+		// The expensive pass — arcs, gradients, twinkle math. Only runs on the throttled cadence,
+		// and only touches the small offscreen canvas.
+		renderOffscreen: function() {
+			const ctx = this.ctx;
+			if (!ctx) return;
+			const w = this.canvas.width, h = this.canvas.height, time = Game.time;
 
-				if (x < -20 || x > width + 20) continue;
+			ctx.clearRect(0, 0, w, h);
 
-				const colour = this.color[i];
-
-				let batch = batches.get(colour);
-				if (!batch) {
-					batch = [];
-					batches.set(colour, batch);
-				}
-
-				batch.push(i);
-			}
-
-			for (const [colour, indices] of batches) {
-				ctx.fillStyle = this.cssColor(colour);
+			for (const [css, indices] of this.batchesByColor) {
+				ctx.fillStyle = css;
 				ctx.beginPath();
-
 				for (const i of indices) {
-					const x = (((this.x[i] + offset) % 1) * width * 2) - width;
-					const y = this.y[i] * waterLine;
-
-					const twinkle =
-						0.6 +
-						0.4 *
-						Math.sin(
-							time * this.twinkleSpeed[i] +
-							this.twinklePhase[i]
-						);
-
-					const radius =
-						this.baseRadius[i] *
-						(this.bright[i] ? 1 : 0.7);
-
+					const x = this.x[i] * w;
+					const y = this.y[i] * h;
+					const twinkle = 0.6 + 0.4 * Math.sin(time * this.twinkleSpeed[i] + this.twinklePhase[i]);
+					const radius = this.baseRadius[i] * (this.bright[i] ? 1 : 0.7) * twinkle;
 					ctx.moveTo(x + radius, y);
-					ctx.arc(x, y, radius * twinkle, 0, Math.PI * 2);
+					ctx.arc(x, y, radius, 0, Math.PI * 2);
 				}
-
-				ctx.globalAlpha = visibility;
 				ctx.fill();
 			}
 
-			// Only the rare bright stars get an additional glow.
-			for (let i = 0; i < this.starsAmount; i++) {
-				if (!this.bright[i]) continue;
-
-				const x = (((this.x[i] + offset) % 1) * width * 2) - width;
-
-				if (x < -20 || x > width + 20) continue;
-
-				const y = this.y[i] * waterLine;
-
-				const twinkle =
-					0.6 +
-					0.4 *
-					Math.sin(
-						time * this.twinkleSpeed[i] +
-						this.twinklePhase[i]
-					);
-
+			for (const i of this.brightIndices) {
+				const x = this.x[i] * w;
+				const y = this.y[i] * h;
+				const twinkle = 0.6 + 0.4 * Math.sin(time * this.twinkleSpeed[i] + this.twinklePhase[i]);
 				const r = this.baseRadius[i] * twinkle;
-
 				if (r < 0.5) continue;
-
-				const glow = ctx.createRadialGradient(
-					x, y, 0,
-					x, y, r * 4
-				);
-
+				const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 4);
 				glow.addColorStop(0, "rgba(200,230,255,0.35)");
 				glow.addColorStop(1, "rgba(0,0,0,0)");
-
-				ctx.globalAlpha = visibility;
 				ctx.fillStyle = glow;
 				ctx.beginPath();
 				ctx.arc(x, y, r * 4, 0, Math.PI * 2);
 				ctx.fill();
 			}
-
-			ctx.globalAlpha = 1;
 		},
 
-		cssColor: function(packed) {
-			if (!this.colorCache) {
-				this.colorCache = new Map();
+		// Cheap: called every frame from Game.update(dt), but it's just a timer check most frames.
+		update: function(dt) {
+			this.ensureOffscreen();
+			this.accumulator += dt;
+			if (this.accumulator >= this.redrawInterval) {
+				this.accumulator -= this.redrawInterval;
+				if (Game.getStarVisibility() > 0) this.renderOffscreen(); // skip the redraw entirely in broad daylight
 			}
+		},
 
-			if (this.colorCache.has(packed)) {
-				return this.colorCache.get(packed);
-			}
+		// Cheap: called every frame from Game.draw(). Just two blits of the cached texture.
+		draw: function(ctx) {
+			const visibility = Game.getStarVisibility();
+			if (visibility <= 0) return;
+			this.ensureOffscreen();
 
-			const r = (packed >>> 24) & 0xFF;
-			const g = (packed >>> 16) & 0xFF;
-			const b = (packed >>> 8) & 0xFF;
-			const a = (packed & 0xFF) / 255;
+			const width = Game.canvas.width;
+			const stripWidth = this.stripWidth;
+			const offset = (Game.dayNight.progress * 0.03) % 1;
+			const shiftPixels = offset * stripWidth;
+			const dx = -((shiftPixels + width) % stripWidth);
 
-			const color = `rgba(${r},${g},${b},${a.toFixed(2)})`;
-
-			this.colorCache.set(packed, color);
-
-			return color;
+			ctx.save();
+			ctx.globalAlpha = visibility;
+			ctx.drawImage(this.canvas, dx, 0);
+			ctx.drawImage(this.canvas, dx + stripWidth, 0); // covers the wrap-around
+			ctx.restore();
 		}
 	},
 	cloudManager: {
@@ -1625,7 +1668,7 @@ const Game = {
 		tileWidth: 128,
 		tileHeight: 128,
 
-		spawnChancePerSecond: { 
+		spawnChancePerSecond: {
 			clear: 0.1,
 			cloudy: 1.5,
 			rainy: 2.1,
@@ -1650,16 +1693,16 @@ const Game = {
 
 		spawnCloud: function(x, y) {
 			const direction = Math.random() < 0.5 ? -1 : 1;
-			const depth = Math.random(); 
-			const scale = 0.5 + depth * 1.1; 
+			const depth = Math.random();
+			const scale = 0.5 + depth * 1.1;
 			var cloud = {
 				x: direction === 1 ? -this.tileWidth * scale : Game.canvas.width + this.tileWidth * scale,
 				y: Math.random() * (Game.waterLine * 0.5) -20,
-				speed: (6 + depth * 14), // ez parallax 
+				speed: (6 + depth * 14), // ez parallax
 				direction,
 				frame: choose(this.frames),
 				leaving: false,
-				alpha: 0.5 + depth * 0.45, 
+				alpha: 0.5 + depth * 0.45,
 				scale
 			};
 			if (x) cloud.x = x;
@@ -1669,7 +1712,7 @@ const Game = {
 
 		initialClouds: function() {
 			var MAX_INITIAL = Math.floor(this.spawnChancePerSecond[Game.weather.current] * 14);
-			console.log(MAX_INITIAL);
+			//console.log(MAX_INITIAL);
 			for (var i = 0; i <= MAX_INITIAL; i++) {
 				this.spawnCloud(Math.random() * Game.canvas.width);
 			}
@@ -1704,7 +1747,7 @@ const Game = {
 		loopFrames: 4,
 		popFrames: 3,
 		frameTime: 0.14,
-		chance: 0.005,
+		chance: 0.05,
 		y_top: 6,
 		spawnCluster: function(x, count = 3) {
 			for (let i = 0; i < count; i++) {
@@ -1723,7 +1766,7 @@ const Game = {
 			}
 		},
 		update: function(dt) {
-			if (Math.random() < this.chance) {
+			if (Math.random() < this.chance * dt) {
 				this.spawnCluster(Math.random() * Game.canvas.width,count=3+Math.floor(Math.random() * 2));
 			}
 			for (let i = this.active.length - 1; i >= 0; i--) {
@@ -1895,7 +1938,7 @@ const Game = {
 	autoClicker: {
 		enabled: true,
 		held: false,
-		interval: 0.1, 
+		interval: 0.4,
 		timer: 0,
 	},
 	// PLAYER
@@ -1909,7 +1952,7 @@ const Game = {
 	charactersById: {},
 	// Your ID sits here.
 	playerId: null,
-	
+
 
 	ensurePlayerId: function() {
 		if (!Game.playerId) {
@@ -1917,7 +1960,7 @@ const Game = {
 		}
 		return Game.playerId;
 	},
-	
+
 	addCharacter: function(config) {
 		const { id, name, row, startUnlocked = false, unlockAchievementPct = null, unlockAchievements = [] } = config;
 		const character = { id, name, row, unlocked: startUnlocked, unlockAchievementPct, unlockAchievements, costumes: [] };
@@ -1976,7 +2019,7 @@ const Game = {
 		Game.guestChar = result;
 		return result, false;
 	},
-	guestChar: null, 
+	guestChar: null,
 
 	updateStatsButtonPreview: function() {
 		const btn = getEle('statsButton');
@@ -2024,7 +2067,7 @@ const Game = {
 
 		// Draw Player
 		const playerSheet = Game.imgs["flo_chars"];
-		
+
 
 		if (playerSheet.complete) {
 			if (Game.ascension.state === "sinking") {
@@ -2059,8 +2102,8 @@ const Game = {
 				);
 			}
 		}
-		
-		
+
+
 
 		if (Game.guestChar) {
 			const guestChar = Game.charactersById[Game.guestChar.charId];
@@ -2090,7 +2133,7 @@ const Game = {
 		}
 
 		// Draw bobber
-		
+
 		Game.ctx.restore();
 	},
 	weatherWaveParams: {
@@ -2142,7 +2185,7 @@ const Game = {
 		const ctx = Game.ctx;
 		const width = Game.canvas.width;
 		const height = Game.canvas.height;
-		const colors = Game.getEnvColors();
+		const colors = Game.envColors;
 		const params = Game.getWaveParams();
 
 		const skyGradient = ctx.createLinearGradient(0, 0, 0, Game.waterLine);
@@ -2172,7 +2215,7 @@ const Game = {
 		const ctx = Game.ctx;
 		const width = Game.canvas.width;
 		const height = Game.canvas.height;
-		const colors = Game.getEnvColors();
+		const colors = Game.envColors;
 		const params = Game.getWaveParams();
 
 		ctx.globalAlpha = Math.min(1, 0.35*intensity);
@@ -2229,7 +2272,7 @@ const Game = {
 			Game.centerX, height, height * 0.9
 		);
 		grad.addColorStop(0, "rgba(0,0,0,0)");
-		if (Game.dayNight.isday) {
+		if (Game.dayNight.isDay) {
 			var alpha = 0.15;
 		}
 		else {
@@ -2250,7 +2293,7 @@ const Game = {
 		Game.allFishById[data.fid] = data
 	},
     // MaxFish 50, Initial 20
-	maxSpawnedFish: 50,
+	maxSpawnedFish: 40,
 	spawnedFish: [],
 	checkFishSpawn: function() {
 		// Checks if a fish can spawn or not
@@ -2269,7 +2312,7 @@ const Game = {
     const fish = { // what is a fish
         definition: definition,
 
-        x: direction === 1 ? 0 - 30 - Math.random() * 20 : this.canvas.width + 30 + Math.random() * 20,
+        x: direction === 1 ? 0 - 40 - Math.random() * 20 : this.canvas.width + 30 + Math.random() * 20,
 
         y: Math.min(Math.max(this.waterLine +
             definition.yPref +
@@ -2297,7 +2340,7 @@ const Game = {
     Game.spawnedFish.push(fish);
 },
     initialFish: function(){
-        const initial = 20;
+        const initial = 20 + Math.min(Math.floor(Game.fishAllTime ** 0.03),10);
         for (var x=0;x <= initial;x++){
             Game.spawnFish(Math.random()*this.canvas.width,Math.random()*this.waterline*0.95);
         }
@@ -2460,6 +2503,9 @@ const Game = {
 		},
 
 		clickSeagull: function(g) {
+
+			if (Game.paused || Game.ascension.state === "sinking") return;
+			Game.seagullsCaught = (Game.seagullsCaught || 0) + 1;
 			const bankReward = Game.currentFish * 0.15;
 			const fpsReward = Game.fishPerSecond * 60 * 5;
 			var reward = Math.min(bankReward, fpsReward);
@@ -2719,7 +2765,7 @@ const Game = {
 
 				const muteBtn = document.createElement("button");
 				muteBtn.className = "shopBtn";
-				muteBtn.textContent = Sound.muted ? "🔇 Unmute" : "🔊 Mute";
+				muteBtn.textContent = Sound.muted ? "Unmute all" : "Mute all."
 				muteBtn.onclick = () => { Sound.toggleMute(); Game.refreshPanel("settings"); };
 				div.appendChild(muteBtn);
 
@@ -2739,7 +2785,7 @@ const Game = {
 					slider.oninput = () => onInput(parseFloat(slider.value));
 					row.appendChild(lbl); row.appendChild(slider);
 					return row;
-				};
+				}
 
 				volSection.appendChild(makeSlider("Master", Sound.masterVolume, v => Sound.setMasterVolume(v)));
 				for (const catName in Sound.categories) {
@@ -2767,7 +2813,7 @@ const Game = {
 				saveBtn.onclick = () => Game.save(true);
 				div.appendChild(saveBtn);
 
-				// --- Resetting n Making sure --- 
+				// --- Resetting n Making sure ---
 				if (!this.confirmingReset) {
 					const resetBtn = document.createElement("button");
 					resetBtn.className = "shopBtn dangerBtn";
@@ -2817,7 +2863,7 @@ const Game = {
 			build: function(div) {
 				div.innerHTML = "<h2>Stats & Fisher</h2>";
 				div.style.overflowY = "scroll";
-				
+
 				// --- All-time stats ---
 				const statsSection = document.createElement("div");
 				statsSection.className = "statsSection";
@@ -2868,7 +2914,7 @@ const Game = {
 
 				//Game.updateStatsButtonPreview();
 				//setTimeout(() => {Game.refreshPanel("stats")},50)
-				
+
 				/*
 				const shareSection = document.createElement("div");
 				shareSection.className = "statsSection";
@@ -2926,7 +2972,7 @@ const Game = {
 		const panel = Game.panels[id];
 		if (!panel) return;
 		if (panel.open) {
-			Game.refreshPanel(id); 
+			Game.refreshPanel(id);
 		} else {
 			panel.dirty = true; // rebuild lazily when opened
 		}
@@ -2988,7 +3034,7 @@ const Game = {
             if (!panel.open) {
 				if (!smallScreen) offsetX = 16;
                 panel.toggleImg.style.zIndex = "1";
-                console.log(panel.temp);
+                //console.log(panel.temp);
                 if (panel.temp){
                     if (panel.temp.top)
                         {
@@ -3124,7 +3170,7 @@ const Game = {
 	//                  (e.g. { fishPerSecMult: { add: 0.005 } }) granted for reaching that tier
 	addTieredFish: function(config) {
 		const {
-			fid, name, column, baseRow, sheet = "flo_fish", iconSheet = "flo_icons", // i didn't even pass the goddamn sheet in the first place... 
+			fid, name, column, baseRow, sheet = "flo_fish", iconSheet = "flo_icons", // i didn't even pass the goddamn sheet in the first place...
 			yPref, yRange, swimStates, speedBase, speedRange,
 			bobAmount, bobFreq, wobbleStrength,
 			requires = [], shop = "upgrade",
@@ -3132,7 +3178,7 @@ const Game = {
 			flavorByTier = {}, effectPerTier = null,
 			startUnlocked = false,
 			depthStepPerTier = 20, // rarer = deeper
-			tierOverrides = null   // optional (tierIndex, tierId) => partial fish-def fields, merged in per tier 
+			tierOverrides = null   // optional (tierIndex, tierId) => partial fish-def fields, merged in per tier
 		} = config;
 
 		let prevUpgradeId = null;
@@ -3231,7 +3277,7 @@ const Game = {
 		Game.fishDirty = true;
 		Game.markPanelDirty("stats")
 		Game.updateShopGlow();
-		
+
 	},
 
 	hasAffordableShopUpgrade: function(shopId) {
@@ -3249,7 +3295,6 @@ const Game = {
 			Game.isBuildingUnlocked(b) && b.owned === 0 && Game.currentFish >= Game.buildingCost(b)
 		);
 	},
-
 	updateShopGlow: function() {
 		const checks = {
 			upgrade: {
@@ -3280,6 +3325,9 @@ const Game = {
 	addBuilding: function(data) {
 		data.owned = data.owned || 0;
 		data.rateMult = 1;
+		data.requires = data.requires || [];
+		data.requiredToTease = data.requiredToTease || [];
+		data.baseCost = data.baseCost || 100;
 		Game.buildings.push(data);
 		Game.buildingsById[data.id] = data;
 	},
@@ -3288,15 +3336,24 @@ const Game = {
 		return Math.ceil(building.baseCost * Math.pow(building.costScale || 1.15, building.owned));
 	},
 
-	isBuildingUnlocked: function(building) {
-		return Game.isUnlocked(building.requires, id =>
+	isBuildingTeased: function(building) {
+		if (building.teased) {
+			return true
+		}
+		return Game.isTeased(building.requiredToTease, id =>
 			Game.upgradesById[id]?.purchased || Game.buildingsById[id]?.owned > 0
 		);
 	},
-	isBuildingTeased: function(building) {
-		return Game.isTeased(building.requires, id =>
+
+	isBuildingUnlocked: function(building) {
+		if (building.unlocked) {
+			return true
+		}
+		const requiresMet = Game.isUnlocked(building.requires, id =>
 			Game.upgradesById[id]?.purchased || Game.buildingsById[id]?.owned > 0
 		);
+		if (!requiresMet) return false;
+		return true
 	},
 
 	buyBuilding: function(id) {
@@ -3313,7 +3370,7 @@ const Game = {
 		Game.refreshPanel("building");
 		Game.markPanelDirty("stats")
 		Game.fishDirty = true;
-		
+
 	},
 	recalcStats: function() {
 		const addStats = { ...Game.baseStats };
@@ -3322,7 +3379,7 @@ const Game = {
 		const buildingMult = {};
 
 		for (const mod of Game.statModifiers) {
-			const type = mod.type || "add"; 
+			const type = mod.type || "add";
 			if (mod.stat.startsWith("building:")) {
 				const buildingId = mod.stat.split(":")[1];
 				if (type === "mult") {
@@ -3465,7 +3522,7 @@ const Game = {
 		else Game.fishPerSecDisplay.innerText = `${Game.fishPerSecond.toFixed(1)} Fish Per Second`;
 	},
 	updateFishDisplay: function() {
-		Game.displayText.textContent = `${Math.floor(Game.currentFish)} Fish`;
+		Game.displayText.textContent = `${numberWithCommas(Math.floor(Game.currentFish))} Fish`;
 	},
 	doPassive: function(dt) {
 		if (Game.fishPerSecond <= 0) return;
@@ -3597,6 +3654,7 @@ const Game = {
 		const data = {
 			currentFish: Game.currentFish,
 			fishAllTime: Game.fishAllTime,
+			fishThisRun: Game.fishThisRun,
 			lastSaveTime: Date.now(),
 			upgrades: Game.upgrades.map(u => ({
 				id: u.id,
@@ -3605,8 +3663,11 @@ const Game = {
 			buildings: Game.buildings.map(b => ({
 				id: b.id,
 				owned: b.owned,
-				rateMult: b.rateMult
+				rateMult: b.rateMult,
+				unlocked: b.unlocked
 			})),
+			clicksAllTime: Game.clicksAllTime,
+			seagullsCaught: Game.seagullsCaught,
 			achievements: Game.achievements,
 			env: {
 				weatherCurrent: Game.weather.current,
@@ -3641,7 +3702,7 @@ const Game = {
 				muted: Sound.muted
 			},
 			guestChar: Game.guestChar, // { charId, costumeId, name, costumeName } or null
-		
+
 		};
 
 		try {
@@ -3652,7 +3713,7 @@ const Game = {
 			console.warn("Fish game: save failed", e);
 		}
 	},
-	
+
 	load: function() {
 		let raw = null;
 		try {
@@ -3671,9 +3732,12 @@ const Game = {
 		}
 
 		if (data) {
-			
+
 			Game.currentFish = data.currentFish || 0;
 			Game.fishAllTime = data.fishAllTime || 0;
+			Game.fishThisRun = data.fishThisRun || 0;
+			Game.seagullsCaught = data.seagullsCaught || 0;
+			Game.clicksAllTime = data.clicksAllTime || 0;
 			for (const saved of data.achievements || []) {
 				const ach = Game.achievementsById[saved.id];
 				if (ach) ach.unlocked = saved.unlocked;
@@ -3688,6 +3752,7 @@ const Game = {
 				if (building) {
 					building.owned = saved.owned || 0;
 					building.rateMult = saved.rateMult || 1;
+					building.unlocked = saved.unlocked || 0;
 				}
 			}
 			if (data.env) {
@@ -3720,11 +3785,11 @@ const Game = {
 				}
 			}
 
-			if (data.playerId) Game.playerId = data.playerId; 
+			if (data.playerId) Game.playerId = data.playerId;
 
 			if (data.settings) {
 				Game.autoClicker.enabled = data.settings.autoClickerEnabled ?? false;
-				console.log(Game.autoClicker.enabled)
+				//console.log(Game.autoClicker.enabled)
 				Sound.muted = data.settings.muted ?? false;
 				Sound.setMasterVolume(data.settings.masterVolume ?? Sound.masterVolume);
 				for (const catName in data.settings.categoryVolumes || {}) {
@@ -3837,13 +3902,16 @@ const Game = {
         if (hardReset) {
             localStorage.removeItem(Game.SAVE_KEY);
 			Game.fishAllTime = 0;
+			Game.seagullsCaught = 0;
+			Game.clicksAllTime = 0;
 			for (const ach of Game.achievements){
 				ach.unlocked = false;
 			}
         }
-
 		Game.ensurePanelsClosed();
         Game.currentFish = 0;
+		Game.fishThisRun = 0;
+
         Game.lastSaveTime = Date.now();
 
         for (const upgrade of Game.upgrades) {
@@ -3878,7 +3946,7 @@ const Game = {
 
         Game.dayNight.progress = 0;
 
-		
+
 
 		Game.seagullManager.active = [];
 
@@ -3907,7 +3975,7 @@ const Game = {
             if (ach.check && ach.check(Game)) Game.awardAchievement(ach.id); // polled achievements still run through here every tick
         }
     },
-    // Directly unlocks one achievement by id 
+    // Directly unlocks one achievement by id
     awardAchievement: function(id) {
         const ach = Game.achievementsById[id];
         if (!ach || ach.unlocked) return;
@@ -4010,7 +4078,7 @@ const Game = {
 // SWIM STATES
 // Need a better way to do this
 Game.swimStates= {
-    drift: { // steady straight-line cruising with a gentle bob 
+    drift: { // steady straight-line cruising with a gentle bob
         minDuration: 4, maxDuration: 9,
         velocity: function(fish) {
             fish.velocityX = fish.direction * fish.speed;
@@ -4066,7 +4134,7 @@ Game.addTieredFish({
     fid: "flo_bream",
     name: "Bream",
     column: 0,
-    baseRow: 0,     
+    baseRow: 0,
     yPref: 100, yRange: 200,
     swimStates: ["drift"],
     speedBase: 10, speedRange: 10,
@@ -4086,13 +4154,13 @@ Game.addTieredFish({
 		abyssal:  "Came from somewhere the light doesn't reach.",
 		cosmic:   "Contains a non-zero amount of stardust."
 	},
-    startUnlocked: true 
+    startUnlocked: true
 });
 Game.addTieredFish({
     fid: "flo_crappie",
     name: "Crappie",
     column: 1,
-    baseRow: 0,     
+    baseRow: 0,
     yPref: 150, yRange: 250,
     swimStates: ["drift"],
     speedBase: 10, speedRange: 10,
@@ -4112,7 +4180,7 @@ Game.addTieredFish({
 		abyssal:  "Came from somewhere the light doesn't reach.",
 		cosmic:   "Contains a non-zero amount of stardust."
 	},
-    startUnlocked: false 
+    startUnlocked: true
 });
 
 
@@ -4121,6 +4189,7 @@ Game.addTieredFish({
 
 /////////////////////////
 //FISH DEFS
+/////////////////////////
 Game.addAchievement({
     id: "amateur_fish",
     name: "Amateur Angler",
@@ -4137,45 +4206,107 @@ Game.addAchievement({
     }
 });
 
-
-Game.addAchievement({
-	id:"self_help",
-	name: "Self Help Book",
-	desc: "Tried to add yourself to your own boat...",
-	flavor: "This can also happen if someone else rolls the same ID as you. At which point aren't they basically you?",
-	unlocked: false,
-	icon: {
-        sheet: "flo_icons_ui",
-        col: 0,
-        row: 0
-    }
+let flo_icons_sheet = "flo_icons_ui"; // me when i pollute the global namespace
+const addSimpleAchievement = (id, name, desc, flavor, sheet, row, col, check) => Game.addAchievement({
+	id, name, desc, flavor, check, unlocked: false, icon: { sheet, row, col }
 });
+//
+addSimpleAchievement("first_net", "Baby's First Net", "Buy your first Fishing Net.",
+	"It's good for like, local pond fish. Maybe.", flo_icons_sheet, 0, 0, game => (game.buildingsById.net?.owned || 0) >= 1);
+addSimpleAchievement("net_fleet", "Net Fleet", "Own 10 Fishing Nets.",
+	"The ocean is now covered in a tasteful amount of rope.",  flo_icons_sheet, 0, 0,  game => (game.buildingsById.net?.owned || 0) >= 10);
+// Total Buildings
+addSimpleAchievement("building_enthusiast", "Building Enthusiast", "Own 50 buildings.",
+	"And I bet you still don't pay taxes on them.", flo_icons_sheet, 0, 0,  game => game.buildings.filter(building => building.owned > 0).length >= 50);
+
+addSimpleAchievement("harbor_master", "Harbor Master", "Own at least one of every building.",
+	"For now...", flo_icons_sheet, 0, 0, game => game.buildings.length > 0 && game.buildings.every(building => building.owned > 0));
+
+addSimpleAchievement("shopaholic", "Shopaholic", "Purchase 5 upgrades.",
+	"Ooh yeah. Sales galore.", flo_icons_sheet, 0, 0, game => game.upgrades.filter(upgrade => upgrade.purchased).length >= 5);
+
+addSimpleAchievement("fully_kitted", "Fully Kitted", "Purchase every upgrade.",
+	"There is nothing left in the shop. For now.", flo_icons_sheet, 0, 0, game => game.upgrades.length > 0 && game.upgrades.every(upgrade => upgrade.purchased));
+
+addSimpleAchievement("schooling", "Schooling", "Unlock 3 fish species.",
+	"The boat is getting crowded.", flo_icons_sheet, 0, 0, game => game.allFish.filter(fish => fish.tierIndex === 0 && fish.unlocked).length >= 3);
+
+addSimpleAchievement("deep_end", "The Deep End", "Unlock a Cosmic tier Fish.",
+	"A glimpse into the unknown.", flo_icons_sheet, 0, 0, game => game.allFish.some(fish => fish.tierIndex === 12 && fish.unlocked));
+
+// Fish Caught
+addSimpleAchievement("fish_fancier", "Fish Fancier", "Catch 1,000 fish.",
+	"Yeah, that's respectable but you can do better.", flo_icons_sheet, 0, 0, game => game.fishAllTime >= 1000);
+
+addSimpleAchievement("fish_lover", "Fish Lover", "Catch 10,000 fish.",
+	"Wow, you must love to Fish.", flo_icons_sheet, 0, 0, game => game.fishAllTime >= 10000);
+
+addSimpleAchievement("fish_tycoon", "Fish Tycoon", "Catch 100,000 fish.",
+	"I wonder if anyone think these are AI Generated?", flo_icons_sheet, 0, 0, game => game.fishAllTime >= 100000);
+
+addSimpleAchievement("fish_magnate", "One Fishillion", "Catch 1,000,000 fish.",
+	"They're not.", flo_icons_sheet, 0, 0, game => game.fishAllTime >= 1000000);
+
+// Clicks
+addSimpleAchievement("handy", "Handy", "Make 100 catches by hand.",
+	"Does this feel.. Familiar?", flo_icons_sheet, 0, 0, game => game.clicksAllTime >= 100);
+
+addSimpleAchievement("dejavu", "Deja Vu", "Make 1,000 catches by hand.",
+	"Please remember to take a break from clicking sometimes, consider using the Autoclicker.", flo_icons_sheet, 0, 0, game => game.clicksAllTime >= 1000);
+addSimpleAchievement("big_catch", "Big Catch", "Catch 100 fish with one click.",
+	"Woa' That's a big one!", flo_icons_sheet, 0, 0, game => game.fishPerClick >= 100);
 
 
-Game.addAchievement({
-	id:"friends",
-	name: "Fishing Friends!",
-	desc: "Added a fellow fisher!",
-	flavor: "Two fishers is better than one right? Too bad they're too damn lazy to do anything.",
-	unlocked: false,
-	icon: {
-        sheet: "flo_icons_ui",
-        col: 0,
-        row: 0
-    }
-});
+addSimpleAchievement("passive_income", "Passive Income", "Reach 10 Fish Per Second.",
+	"Hey guys welcome back, today I'm going to be showing you my infinite fish hack.", flo_icons_sheet, 0, 0, game => game.fishPerSecond >= 10);
+addSimpleAchievement("fish_factory", "Fish Factory", "Reach 100 Fish Per Second.",
+	"I don't think this can be considered sustainable.", flo_icons_sheet, 0, 0, game => game.fishPerSecond >= 100);
+
+addSimpleAchievement("industrialist", "Industrialist", "Reach 1,000 Fish Per Second.",
+	"The Fish Revolution and its consequences", flo_icons_sheet, 0, 0, game => game.fishPerSecond >= 1000);
+// Nets
+
+
+// Weather
+addSimpleAchievement("night_shift", "Night Shift", "Earn fish while it is nighttime.",
+	"The moon pays in fish, apparently.", flo_icons_sheet, 0, 0, game => !game.dayNight.isDay && game.fishAllTime > 0);
+
+addSimpleAchievement("weathered", "Weathered", "Survive a rainy or stormy day.",
+	"The boat is still technically seaworthy.", flo_icons_sheet, 0, 0, game => game.weather.current === "rainy" || game.weather.current === "stormy");
+
+addSimpleAchievement("storm_chaser", "Storm Chaser", "Fish during a storm.",
+	"Bad weather is just weather with better atmosphere.", flo_icons_sheet, 0, 0, game => game.weather.current === "stormy" && game.fishAllTime > 0);
+
+addSimpleAchievement("eclipse_fisher", "Eclipse Fisher", "Fish during a Solar Eclipse.",
+	"The sun disappeared and the fish got interesting.", flo_icons_sheet, 0, 0, game => game.specialWeather.active === "solarEclipse");
+
+addSimpleAchievement("cookie_forecast", "Cookie Forecast", "Experience a Cookie Storm.",
+	"A perfectly normal meteorological event.", flo_icons_sheet, 0, 0, game => game.specialWeather.active === "cookieStorm");
+
+
+// Seagulls
+addSimpleAchievement("gullible", "Gullible", "Catch a seagull.",
+	"It was looking at you funny.", flo_icons_sheet, 0, 0, game => game.seagullsCaught >= 1);
+
+addSimpleAchievement("gull_hunter", "Gull Hunter", "Catch 10 seagulls.",
+	"The skies are no longer safe from your fishing rod.", flo_icons_sheet, 0, 0, game => game.seagullsCaught >= 10);
+
+addSimpleAchievement("boat_party", "Boat Party", "Bring a guest fisher aboard.",
+	"Two fishers, one boat, zero extra productivity.", flo_icons_sheet, 0, 0, game => game.guestChar !== null);
+
 
 
 // BUILDINGS
 Game.addBuilding({
-	id: "net",
+	id: "fishing_net",
 	name: "Fishing Net",
 	desc: "Passively catches fish over time.",
 	flavor: "A lowly net. What will it do?",
 	baseRate: 0.1,
-	baseCost: 25,
-	costScale: 1.15,
-	requires: [],
+	baseCost: 5,
+	costScale: 1.25,
+	unlocked:true,
+	requires:[],
 	icon: {
 		sheet: "flo_icons_ui",
 		col: 2,
@@ -4183,19 +4314,20 @@ Game.addBuilding({
 	},
 	owned: 0,
 	onBuy: function(b) {
-		/* hook into a passive income tick later */
+		Game.buildingsById["crab_pot"].unlocked = true;
 	}
 });
 
 Game.addBuilding({
-	id: "crabpot",
+	id: "crab_pot",
 	name: "Crab Pot",
 	desc: "Catches slightly more fish. Also looks colorful",
 	flavor: "You see despite being called CRAB pots...",
 	baseRate: 1,
-	baseCost: 250,
-	costScale: 1.15,
-	requires: [],
+	baseCost: 50,
+	costScale: 1.25,
+	requires: ['fishing_net'],
+	teased: true,
 	icon: {
 		sheet: "flo_icons_ui",
 		col: 2,
@@ -4203,7 +4335,7 @@ Game.addBuilding({
 	},
 	owned: 0,
 	onBuy: function(b) {
-		/* hook into a passive income tick later */
+		Game.buildingsById["fisher"].unlocked = true;
 	}
 });
 
@@ -4213,9 +4345,10 @@ Game.addBuilding({
 	desc: "Somebody to fish for you.",
 	flavor: "Quality not assured.",
 	baseRate: 15,
-	baseCost: 2500,
+	baseCost: 500,
 	costScale: 1.15,
-	requires: [],
+	requires: ['crab_pot'],
+	requiredToTease: ['fishing_net'],
 	icon: {
 		sheet: "flo_icons_ui",
 		col: 2,
@@ -4223,7 +4356,7 @@ Game.addBuilding({
 	},
 	owned: 0,
 	onBuy: function(b) {
-		
+		Game.buildingsById["flyfisher"].unlocked = true;
 	}
 });
 
@@ -4233,10 +4366,12 @@ Game.addBuilding({
 	name: "Fly Fisher",
 	desc: "Hovers above the water for optimal angling.",
 	flavor: "You pay for what you get.",
+
 	baseRate: 50,
-	baseCost: 5000,
+	baseCost: 2000,
 	costScale: 1.15,
-	requires: [],
+	requires: ['fisher'],
+	requiredToTease: ['crab_pot'],
 	icon: {
 		sheet: "flo_icons_ui",
 		col: 2,
@@ -4244,7 +4379,7 @@ Game.addBuilding({
 	},
 	owned: 0,
 	onBuy: function(b) {
-		
+		Game.buildingsById["trawler"].unlocked = true;
 	}
 });
 
@@ -4257,7 +4392,8 @@ Game.addBuilding({
 	baseRate: 500,
 	baseCost: 20000,
 	costScale: 1.15,
-	requires: [],
+	requires: ['flyfisher'],
+	requiredToTease: ['fisher'],
 	icon: {
 		sheet: "flo_icons_ui",
 		col: 2,
@@ -4265,7 +4401,8 @@ Game.addBuilding({
 	},
 	owned: 0,
 	onBuy: function(b) {
-		
+		Game.buildingsById["rig"].unlocked = true;
+
 	}
 });
 
@@ -4278,7 +4415,8 @@ Game.addBuilding({
 	baseRate: 5000,
 	baseCost: 50000,
 	costScale: 1.15,
-	requires: [],
+	requires: ['trawler'],
+	requiredToTease: ['flyfisher'],
 	icon: {
 		sheet: "flo_icons_ui",
 		col: 2,
@@ -4286,7 +4424,7 @@ Game.addBuilding({
 	},
 	owned: 0,
 	onBuy: function(b) {
-		
+
 	}
 });
 
@@ -4299,7 +4437,8 @@ Game.addBuilding({
 	baseRate: 15,
 	baseCost: 2500,
 	costScale: 1.15,
-	requires: [],
+	requires: ['rig'],
+	requiredToTease: ['trawler'],
 	icon: {
 		sheet: "flo_icons_ui",
 		col: 2,
@@ -4307,7 +4446,7 @@ Game.addBuilding({
 	},
 	owned: 0,
 	onBuy: function(b) {
-		
+
 	}
 });
 
@@ -4334,7 +4473,7 @@ Game.addUpgrade({
 	},
 	purchased: false,
 	effects: {
-        "building:net": { mult: 1.5 }
+        "building:fishing_net": { mult: 1.5 }
     }
 });
 
@@ -4347,7 +4486,7 @@ Game.addUpgrade({
     icon: { sheet: "flo_icons_ui", col: 3, row: 3 },
     purchased: false,
     effects: {
-        "building:net": { mult: 1.25 }
+        "building:fishing_net": { mult: 1.25 }
     }
 });
 ///////////////////////////////////////
@@ -4517,17 +4656,6 @@ Game.addUpgrade({
 		cultToggle.style.display = 'block';
 	}
 });
-
-Game.addCharacter({ id: "flo", name: "Flo", row: 0, startUnlocked: true });
-Game.addCostume("flo", { id: "default", name: "Default", col: 0, startUnlocked: true });
-Game.addCostume("flo", { id: "sailor", name: "Sailor Stripes", col: 1, unlockAchievements: ["ach_fisherman"] });
-
-Game.addCharacter({ id: "salty", name: "Salty Pete", row: 1, unlockAchievementPct: 0.25 });
-Game.addCostume("salty", { id: "default", name: "Default", col: 0, startUnlocked: true });
-
-Game.addCharacter({id: "joebones", name: "Bones", row: 4,  startUnlocked: true});
-Game.addCostume("joebones", {id: "joedefault", name: "Default", col: 0, startUnlocked: true});
-Game.addCostume("joebones", {id: "holiday", name: "Beach Bones", col: 1, unlockAchievements: ["ach_party_bones"]});
 // OCEAN EVENTS
 Game.addOceanEvent({
 	id: "planktonBloom",
@@ -4538,9 +4666,12 @@ Game.addOceanEvent({
 	tintStrength: 0.8 // how strongly it mixes into the base water color, 0-1
 });
 
+
+
 console.clear();
 console.log("=========================");
 console.log("WELCOME TO FISH FISH FISH");
 console.log("=========================");
 
+//Game.loadMods(MODS)
 Game.boot();
